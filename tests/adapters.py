@@ -15,6 +15,7 @@ import multiprocessing
 from tests.common import gpt2_bytes_to_unicode
 from cs336_basics.pretokenization_example import find_chunk_boundaries
 from cs336_basics.train_bpe_helper import _process_chunk, _get_pair_stats
+from cs336_basics.tokenizer import Tokenizer
 
 def run_linear(
     d_in: int,
@@ -563,7 +564,7 @@ def get_tokenizer(
     Returns:
         A BPE tokenizer that uses the provided vocab, merges, and special tokens.
     """
-    raise NotImplementedError
+    return Tokenizer(vocab=vocab, merges=merges, special_tokens=special_tokens)
 
 
 def run_train_bpe(
