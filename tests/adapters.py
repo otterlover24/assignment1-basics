@@ -16,6 +16,7 @@ from tests.common import gpt2_bytes_to_unicode
 from cs336_basics.pretokenization_example import find_chunk_boundaries
 from cs336_basics.train_bpe_helper import _process_chunk, _get_pair_stats
 from cs336_basics.tokenizer import Tokenizer
+from cs336_basics.linear import Linear
 
 def run_linear(
     d_in: int,
@@ -36,7 +37,25 @@ def run_linear(
         Float[Tensor, "... d_out"]: The transformed output of your linear module.
     """
 
-    raise NotImplementedError
+    # 1. Instantiate your custom Linear module with the given dimensions.
+    # The device and dtype of the weights and input features will be inferred.
+    device = weights.device
+    dtype = weights.dtype
+    linear_module = Linear(in_features=d_in, out_features=d_out, device=device, dtype=dtype)
+
+    # 2. Prepare the state dictionary for loading. The key 'W' must match
+    #    the name of the parameter in your Linear class (self.W).
+    state_dict_to_load = {"W": weights}
+
+    # 3. Load the provided weights into your module instance.
+    #    This is a key method provided by the nn.Module base class.
+    linear_module.load_state_dict(state_dict_to_load)
+
+    # 4. Apply the linear transformation by calling the module.
+    #    This invokes the forward() method of your linear_module.
+    output = linear_module(in_features)
+
+    return output
 
 
 def run_embedding(
