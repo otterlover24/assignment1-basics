@@ -17,6 +17,7 @@ from cs336_basics.pretokenization_example import find_chunk_boundaries
 from cs336_basics.train_bpe_helper import _process_chunk, _get_pair_stats
 from cs336_basics.tokenizer import Tokenizer
 from cs336_basics.linear import Linear
+from cs336_basics.embedding import Embedding
 
 def run_linear(
     d_in: int,
@@ -77,7 +78,12 @@ def run_embedding(
         Float[Tensor, "... d_model"]: Batch of embeddings returned by your Embedding layer.
     """
 
-    raise NotImplementedError
+    device = weights.device
+    dtype = weights.dtype
+    embedding_module = Embedding(vocab_size, d_model, device=device, dtype=dtype)
+    embedding_module.load_state_dict({"weight": weights})
+    output = embedding_module(token_ids)
+    return output
 
 
 def run_swiglu(
