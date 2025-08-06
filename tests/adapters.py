@@ -18,6 +18,7 @@ from cs336_basics.train_bpe_helper import _process_chunk, _get_pair_stats
 from cs336_basics.tokenizer import Tokenizer
 from cs336_basics.linear import Linear
 from cs336_basics.embedding import Embedding
+from cs336_basics.rmsnorm import RMSNorm
 
 def run_linear(
     d_in: int,
@@ -410,7 +411,25 @@ def run_rmsnorm(
         Float[Tensor,"... d_model"]: Tensor of with the same shape as `in_features` with the output of running
         RMSNorm of the `in_features`.
     """
-    raise NotImplementedError
+    # 1. Instantiate your custom Linear module with the given dimensions.
+    # The device and dtype of the weights and input features will be inferred.
+    device = weights.device
+    dtype = weights.dtype
+    rms_norm = RMSNorm(d_model=d_model, eps=eps, device=device, dtype=dtype)
+
+    # 2. Prepare the state dictionary for loading. The key 'W' must match
+    #    the name of the parameter in your Linear class (self.W).
+    state_dict_to_load = {"g": weights}
+
+    # 3. Load the provided weights into your module instance.
+    #    This is a key method provided by the nn.Module base class.
+    rms_norm.load_state_dict(state_dict_to_load)
+
+    # 4. Apply the linear transformation by calling the module.
+    #    This invokes the forward() method of your linear_module.
+    output = rms_norm(in_features)
+
+    return output
 
 
 def run_silu(in_features: Float[Tensor, " ..."]) -> Float[Tensor, " ..."]:
