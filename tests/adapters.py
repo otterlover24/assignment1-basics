@@ -11,6 +11,7 @@ from torch import Tensor
 
 from tqdm import tqdm
 import multiprocessing
+from einops import rearrange
 
 from tests.common import gpt2_bytes_to_unicode
 from cs336_basics.pretokenization_example import find_chunk_boundaries
@@ -23,6 +24,8 @@ from cs336_basics.positionwise_feedforward import PositionwiseFeedForward
 from cs336_basics.rope import RotaryPositionalEmbedding
 from cs336_basics.softmax import softmax
 from cs336_basics.scaled_dot_product_attention import scaled_dot_product_attention
+from cs336_basics.multihead_self_attention import CausalMultiHeadSelfAttention
+
 def run_linear(
     d_in: int,
     d_out: int,
@@ -188,7 +191,26 @@ def run_multihead_self_attention(
         Float[Tensor, " ... sequence_length d_out"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    raise NotImplementedError
+    attention_module = CausalMultiHeadSelfAttention(d_model=d_model, num_heads=num_heads)
+
+    # --- THE FIX ---
+    # The provided weights are already for all heads.
+    # q_proj_weight is shape (d_model, d_model) = (64, 64)
+    # k_proj_weight is shape (d_model, d_model) = (64, 64)
+    # v_proj_weight is shape (d_model, d_model) = (64, 64)
+    # We simply concatenate them.
+    W_qkv = torch.cat([q_proj_weight, k_proj_weight, v_proj_weight], dim=0)
+    # The resulting shape is (3 * d_model, d_model) = (192, 64). This now matches
+    # the shape of the `to_qkv.weight` in our module.
+    # --- END FIX ---
+
+    attention_module.to_qkv.weight.data.copy_(W_qkv)
+    attention_module.to_out.weight.data.copy_(o_proj_weight)
+
+    attention_module.eval()
+    return attention_module(in_features)
+
+    
 
 
 def run_multihead_self_attention_with_rope(
@@ -228,7 +250,50 @@ def run_multihead_self_attention_with_rope(
         Float[Tensor, " ... sequence_length d_out"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    raise NotImplementedError
+    # This function uses the same logic but without a helper class.
+    # The logic here must also be updated.
+
+    *_, seq_len, _ = in_features.shape
+    d_k = d_model // num_heads
+
+    # --- THE FIX ---
+    # Same fix as above: just concatenate the provided full projection weights.
+    W_qkv = torch.cat([q_proj_weight, k_proj_weight, v_proj_weight], dim=0)
+    # Shape of W_qkv is now (192, 64)
+    # --- END FIX ---
+
+    # in_features: (b, t, 64), W_qkv: (192, 64) -> qkv: (b, t, 192)
+    qkv = torch.einsum('... t i, o i -> ... t o', in_features, W_qkv)
+
+    # Now, rearrange will work because qkv's last dim (192)
+    # matches the product of qkv=3, h=4, d=16.
+    q, k, v = rearrange(qkv, '... t (qkv h d) -> qkv ... h t d', qkv=3, h=num_heads)
+
+    rope = RotaryPositionalEmbedding(
+        theta=theta,
+        d_k=d_k,
+        max_seq_len=max_seq_len,
+        device=in_features.device
+    )
+
+    if token_positions is None:
+        token_positions = torch.arange(seq_len, device=in_features.device)
+
+    q = rope(q, token_positions)
+    k = rope(k, token_positions)
+
+    dots = torch.einsum('... h i d, ... h j d -> ... h i j', q, k) / (d_k ** 0.5)
+    causal_mask = torch.triu(torch.ones(seq_len, seq_len, device=in_features.device), diagonal=1).bool()
+    dots.masked_fill_(causal_mask, float('-inf'))
+
+    attn_weights = dots.softmax(dim=-1)
+    attended_v = torch.einsum('... h i j, ... h j d -> ... h i d', attn_weights, v)
+
+    concatenated_heads = rearrange(attended_v, '... h t d -> ... t (h d)')
+
+    output = torch.einsum('... t i, o i -> ... t o', concatenated_heads, o_proj_weight)
+
+    return output
 
 
 def run_rope(
